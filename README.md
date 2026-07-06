@@ -40,13 +40,13 @@ The work was carried out across three internship phases:
 
 | Component | Details |
 |---|---|
-| **MCU** | ESP32 (dual-core Xtensa LX6) |
-| **Framework** | ESP-IDF v5.x (CMake-based build) |
+| **MCU** | ESP32-D0WD (dual-core Xtensa LX6) |
+| **Framework** | ESP-IDF v6.0.1 (CMake-based build) |
 | **LCD** | 16×2 character LCD via I2C (PCF8574 backpack, address `0x27`) |
-| **Buttons** | 3× push-buttons (active-low, internal pull-up) |
-| **LED** | On-board or external LED on GPIO 33 |
+| **Buttons** | 4× push-buttons (Up, Down, OK, Back), active-low with internal pull-up |
+| **LED** | external LED on GPIO 33 |
 | **I2C Pins** | SDA = GPIO 21, SCL = GPIO 22 |
-| **Button Pins** | GPIO 25, 26, 27 (standalone test) / GPIO 32, 33 (combined test) |
+| **Button Pins** | GPIO 25, 26, 27 (standalone test) / GPIO 32, 33 (combined test), active-low with internal pull-up |
 
 ---
 
