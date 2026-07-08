@@ -1,7 +1,0 @@
--Wno-frame-address
--mlongcalls
--fno-builtin-memcpy
--fno-builtin-memset
--fno-builtin-bzero
-"-specs=C:/Desktop/ESP Workplace 2/Integrated-Humanitarian-Coordination-System-ICHS-Internship/lcd_test/build/specs/picolibc.specs"
--fno-rtti
