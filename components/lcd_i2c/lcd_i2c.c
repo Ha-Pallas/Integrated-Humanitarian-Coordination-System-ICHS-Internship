@@ -3,7 +3,22 @@
 #include "freertos/task.h"
 #include "driver/i2c_master.h"
 
+#define LCD_ADDR 0x27
+
 i2c_master_dev_handle_t lcd;
+
+void lcd_i2c_init(i2c_master_bus_handle_t bus)
+{
+    i2c_device_config_t dev_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = LCD_ADDR,
+        .scl_speed_hz = 100000,
+    };
+
+    ESP_ERROR_CHECK(
+        i2c_master_bus_add_device(bus, &dev_config, &lcd)
+    );
+}
 
 
 /* low-level write */
