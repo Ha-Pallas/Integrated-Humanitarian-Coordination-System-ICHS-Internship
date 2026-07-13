@@ -1,6 +1,6 @@
 # Integrated Humanitarian Coordination System (IHCS) — Internship
 
-> ESP32-based firmware modules for a field-deployable humanitarian coordination terminal.  
+> ESP32-based firmware modules for a field-deployable humanitarian coordination terminal.
 > Developed as part of the IHCS internship programme.
 
 ---
@@ -10,13 +10,10 @@
 - [Overview](#overview)
 - [Target Hardware](#target-hardware)
 - [Project Structure](#project-structure)
-- [Module Details](#module-details)
-  - [led_blink](#1-led_blink--gpio-blink-test)
-  - [uart-output](#2-uart_output--serial-heartbeat)
-  - [buttons-test](#3-buttons-test--gpio-input-with-debounce)
-  - [lcd-test](#4-lcd-test--i2c-lcd-driver)
-  - [spiffs_test](#5-spiffs_test--flash-file-system)
-  - [combined_hardware_test](#6-combined_hardware_test--integration-of-all-subsystems)
+- [Shared Components](#shared-components)
+- [Phase 1 — Toolchain](#phase-1--toolchain)
+- [Phase 2 — Hardware Bring-Up](#phase-2--hardware-bring-up)
+- [Phase 3 — Integration](#phase-3--integration)
 - [Build & Flash](#build--flash)
 - [Partition Tables](#partition-tables)
 - [Google Drive Resources](#google-drive-resources)
@@ -26,13 +23,13 @@
 
 ## Overview
 
-This repository contains a series of incremental ESP32 firmware projects built with the **ESP-IDF** (Espressif IoT Development Framework). Each sub-project is a standalone ESP-IDF component that tests or demonstrates a single hardware subsystem. The final project, `Combined_Hardware_Test`, integrates all subsystems into a single application that drives an I2C LCD, reads two push-buttons, and logs events to the SPIFFS flash file system.
+This repository contains a series of incremental ESP32 firmware projects built with the **ESP-IDF** (Espressif IoT Development Framework), organized by internship phase. Common hardware drivers (LCD, buttons, SPIFFS logging) live in shared, reusable ESP-IDF components under `components/`, rather than being duplicated across projects. The final project, `combined_hardware_test`, pulls all three shared components together into a single application that drives an I2C LCD, reads two push-buttons, and logs events to the SPIFFS flash file system.
 
 The work was carried out across three internship phases:
 
-1. **Environment Setup & Toolchain Configuration** — Getting the ESP-IDF toolchain working and flashing the first "hello world" LED blink.
+1. **Toolchain** — Getting the ESP-IDF toolchain working and flashing the first "hello world" LED blink.
 2. **Hardware Bring-Up** — Individually testing UART serial output, GPIO button input, I2C LCD display, and SPIFFS persistent storage.
-3. **State Machine Implementation** — Combining all peripherals into a single interactive firmware (`Combined_Hardware_Test`).
+3. **Integration** — Combining all peripherals into a single interactive firmware built on shared components.
 
 ---
 
@@ -43,195 +40,147 @@ The work was carried out across three internship phases:
 | **MCU** | ESP32-D0WD (dual-core Xtensa LX6) |
 | **Framework** | ESP-IDF v6.0.1 (CMake-based build) |
 | **LCD** | 16×2 character LCD via I2C (PCF8574 backpack, address `0x27`) |
-| **Buttons** | 4× push-buttons (Up, Down, OK, Back), active-low with internal pull-up |
-| **LED** | external LED on GPIO 33 |
+| **Buttons** | 2× push-buttons, active-low with internal pull-up |
 | **I2C Pins** | SDA = GPIO 21, SCL = GPIO 22 |
-| **Button Pins** | GPIO 25, 26, 27 (standalone test) / GPIO 32, 33 (combined test), active-low with internal pull-up |
+| **Button Pins** | GPIO 32 (Button 1), GPIO 33 (Button 2) |
+
+All shared pin definitions live in `components/include/board.h`.
 
 ---
 
 ## Project Structure
+Integrated-Humanitarian-Coordination-System-ICHS-Internship/
+├── README.md
+├── components/                          # Shared ESP-IDF components
+│   ├── include/                         # board.h — shared pin definitions
+│   ├── lcd_i2c/                         # I2C 16x2 LCD driver
+│   ├── buttons/                         # Debounced GPIO button handling
+│   └── spiffs_log/                      # SPIFFS-backed logging
+├── phase1_toolchain/
+│   └── led_blink/                       # GPIO LED blink ("hello world")
+├── phase2_bringup/
+│   ├── uart_output/                     # UART serial heartbeat
+│   ├── buttons_test/                    # Standalone button GPIO test
+│   ├── lcd_test/                        # Standalone LCD driver test
+│   └── spiffs_test/                     # Standalone SPIFFS test
+└── phase3_integration/
+└── combined_hardware_test/          # Integrated firmware (uses all 3 components)
 
-```
-Integrated-Humanitarian-Coordination-System-IHCS-Internship/
-├── Drives                          # Google Drive links for each internship phase
-├── README.md                       # This file
-├── led_blink/                      # Phase 1 — GPIO LED blink
-│   ├── CMakeLists.txt
-│   ├── sdkconfig
-│   └── main/
-│       ├── CMakeLists.txt
-│       └── led_blink.c
-├── UART-output/                    # Phase 2 — UART serial heartbeat
-│   ├── CMakeLists.txt
-│   ├── sdkconfig
-│   └── main/
-│       ├── CMakeLists.txt
-│       └── UART-output.c
-├── Buttons-test/                   # Phase 2 — GPIO button input with debounce
-│   ├── CMakeLists.txt
-│   ├── sdkconfig
-│   └── main/
-│       ├── CMakeLists.txt
-│       └── Buttons-test.c
-├── LCD-test/                       # Phase 2 — I2C 16×2 LCD driver
-│   ├── CMakeLists.txt
-│   ├── sdkconfig
-│   └── main/
-│       ├── CMakeLists.txt
-│       └── LCD-test.c
-├── spiffs_test/                    # Phase 2 — SPIFFS flash file system
-│   ├── CMakeLists.txt
-│   ├── partitions.csv
-│   ├── sdkconfig
-│   └── main/
-│       ├── CMakeLists.txt
-│       └── spiffs_test.c
-└── Combined_Hardware_Test/         # Phase 3 — Integrated firmware
-    ├── CMakeLists.txt
-    ├── partitions.csv
-    ├── sdkconfig
-    └── main/
-        ├── CMakeLists.txt
-        └── Combined_Hardware_Test.c
+Each project folder (`led_blink`, `uart_output`, etc.) is an independent ESP-IDF project with its own `CMakeLists.txt`, `main/`, and `sdkconfig.defaults`.
+
+---
+
+## Shared Components
+
+### `components/include` — `board.h`
+
+Central pin definitions, shared by any component or project that needs them:
+
+```c
+#define LCD_SDA_PIN   GPIO_NUM_21
+#define LCD_SCL_PIN   GPIO_NUM_22
+#define BUTTON_1_PIN  GPIO_NUM_32
+#define BUTTON_2_PIN  GPIO_NUM_33
 ```
 
----
+### `components/lcd_i2c` — I2C LCD driver
 
-## Module Details
+4-bit I2C driver for a 16×2 character LCD with a PCF8574 backpack.
 
-### 1. `led_blink` — GPIO Blink Test
+```c
+void lcd_i2c_init(i2c_master_bus_handle_t bus);
+void lcd_init(void);
+void lcd_cmd(uint8_t cmd);
+void lcd_data(uint8_t data);
+void lcd_set_cursor(int row, int col);
+void lcd_print(const char *str);
+```
 
-**Phase:** Environment Setup & Toolchain Configuration
+### `components/buttons` — Debounced GPIO buttons
 
-The simplest possible ESP-IDF application. Configures GPIO 33 as an output and toggles it every 500 ms, blinking an LED. This served as the "hello world" to verify the toolchain, flashing, and serial monitor were all working correctly.
+Active-low, internal pull-up, 200 ms software debounce.
 
-**Key details:**
-- LED pin: `GPIO_NUM_33`
-- Blink interval: 500 ms on / 500 ms off
-- Uses FreeRTOS `vTaskDelay()` for timing
+```c
+void buttons_init(void);
+bool button_pressed(gpio_num_t pin);  // true once per press
+```
 
-**Source:** `led_blink/main/led_blink.c`
+### `components/spiffs_log` — SPIFFS logging
 
----
+Mounts the `storage` SPIFFS partition and appends lines to a log file.
 
-### 2. `UART-output` — Serial Heartbeat
-
-**Phase:** Hardware Bring-Up
-
-Tests UART serial output by printing a boot message and then a incrementing "Heartbeat" counter every second. Confirms that the USB-to-UART bridge and serial monitor are functioning.
-
-**Key details:**
-- Prints `"IHCS Field Terminal — Boot OK"` at startup
-- Prints `"Heartbeat: <n>"` every 1 second
-- Uses `printf()` which maps to the default UART0 console
-
-**Source:** `UART-output/main/UART-output.c`
-
----
-
-### 3. `Buttons-test` — GPIO Input with Debounce
-
-**Phase:** Hardware Bring-Up
-
-Reads three push-buttons on GPIO 25, 26, and 27. Each button is configured as an input with an internal pull-up resistor (buttons are active-low). A simple software debounce of 200 ms is applied. On each button press, a message is printed to the serial console.
-
-**Key details:**
-- Button pins: `GPIO_NUM_25`, `GPIO_NUM_26`, `GPIO_NUM_27`
-- Pull-up enabled, active-low (pressed = 0)
-- Debounce delay: 200 ms
-- Polling loop runs every 20 ms
-- Detects falling-edge transitions (release → press)
-
-**Source:** `Buttons-test/main/Buttons-test.c`
+```c
+esp_err_t spiffs_log_init(void);
+void spiffs_log_write(const char *msg);
+```
 
 ---
 
-### 4. `LCD-test` — I2C LCD Driver
+## Phase 1 — Toolchain
 
-**Phase:** Hardware Bring-Up
+### `led_blink`
 
-Implements a bit-banged 4-bit I2C driver for a 16×2 character LCD with a PCF8574 I2C backpack (address `0x27`). The driver uses the ESP-IDF `i2c_master` API. The test displays `"IHCS OK"` on the first line and an incrementing counter on the second line, updating every second.
+The simplest possible ESP-IDF application — configures an LED GPIO as output and blinks it every 500 ms. Used to verify the toolchain, flashing, and serial monitor were all working.
 
-**Key details:**
-- I2C address: `0x27`
-- SDA: `GPIO_NUM_21`, SCL: `GPIO_NUM_22`
-- I2C clock: 100 kHz
-- 4-bit initialization sequence (`0x33 → 0x32 → 0x28 → 0x0C → 0x06 → 0x01`)
-- Functions: `lcd_cmd()`, `lcd_data()`, `lcd_set_cursor()`, `lcd_print()`, `lcd_init()`
-- Backlight is always on (bit 3 = `0x08` set in data byte)
-
-**Source:** `LCD-test/main/LCD-test.c`
+**Source:** `phase1_toolchain/led_blink/main/led_blink.c`
 
 ---
 
-### 5. `spiffs_test` — Flash File System
+## Phase 2 — Hardware Bring-Up
 
-**Phase:** Hardware Bring-Up
+### `uart_output` — Serial Heartbeat
 
-Tests the SPIFFS (SPI Flash File System) by mounting a storage partition, writing a test file, reading it back, appending a second line, and reading the full contents. This validates persistent non-volatile storage on the ESP32's flash.
+Prints a boot message, then an incrementing "Heartbeat" counter every second over UART0.
 
-**Key details:**
-- Mount point: `/spiffs`
-- Partition label: `storage`
-- Test file: `/spiffs/report.txt`
-- Operations: write (`"w"`), read (`"r"`), append (`"a"`)
-- Formats flash on mount failure (`format_if_mount_failed = true`)
-- Custom partition table (`partitions.csv`) with a 384 KB SPIFFS partition
+**Source:** `phase2_bringup/uart_output/main/UART-output.c`
 
-**Partition layout:**
+### `buttons_test` — GPIO Input with Debounce
 
-| Name | Type | SubType | Size |
-|---|---|---|---|
-| nvs | data | nvs | 24 KB |
-| phy_init | data | phy | 4 KB |
-| factory | app | factory | 1 MB |
-| storage | data | spiffs | 384 KB |
+Standalone test of the debounced button-reading approach later extracted into `components/buttons`.
 
-**Source:** `spiffs_test/main/spiffs_test.c`
+**Source:** `phase2_bringup/buttons_test/main/Buttons-test.c`
+
+### `lcd_test` — I2C LCD Driver
+
+Standalone test of the LCD driver later extracted into `components/lcd_i2c`. Displays a boot message and an incrementing counter.
+
+**Source:** `phase2_bringup/lcd_test/main/LCD-test.c`
+
+### `spiffs_test` — Flash File System
+
+Standalone test of SPIFFS mounting, writing, reading, and appending — the basis for `components/spiffs_log`. Uses a custom partition table (`partitions.csv`).
+
+**Source:** `phase2_bringup/spiffs_test/main/spiffs_test.c`
 
 ---
 
-### 6. `Combined_Hardware_Test` — Integration of All Subsystems
+## Phase 3 — Integration
 
-**Phase:** State Machine Implementation
+### `combined_hardware_test`
 
-The culmination of the internship work. This single firmware integrates all previously tested peripherals into one application:
-
-- **I2C LCD** — Displays status and log count on a 16×2 display
-- **Two push-buttons** — Button 1 shows status on the LCD; Button 2 writes a log entry to SPIFFS
-- **SPIFFS** — Persists log entries to `/spiffs/log.txt`
-- **UART** — Prints debug/status messages to the serial console
+The culmination of the internship work. Built on top of the three shared components (`lcd_i2c`, `buttons`, `spiffs_log`) rather than duplicating driver code.
 
 **Behaviour:**
 
-1. On boot, the system initializes SPIFFS, I2C, the LCD, and the buttons.
-2. The LCD shows `"Ready"` / `"Logs: 0"`.
-3. **Button 1 press:** Updates the LCD to show `"Button 1"` and the current log count.
-4. **Button 2 press:** Increments the log counter, appends a timestamped entry (`"Log entry <n>"`) to `/spiffs/log.txt`, and updates the LCD to show `"Logged!"` with the new count.
-5. The main loop polls buttons every 50 ms with edge detection.
+1. On boot, initializes SPIFFS, I2C, the LCD, and the buttons. LCD shows `"Ready"` / `"Logs: 0"`.
+2. **Button 1 press:** Updates the LCD to show `"Button 1"` and the current log count.
+3. **Button 2 press:** Increments the log counter, appends `"Log entry <n>"` to `/spiffs/log.txt` via `spiffs_log_write()`, and updates the LCD to show `"Logged!"`.
+4. Main loop polls both buttons every 50 ms.
 
-**Key details:**
-- Button pins: `GPIO_NUM_32` (BTN1), `GPIO_NUM_33` (BTN2)
-- LCD I2C address: `0x27`, SDA = GPIO 21, SCL = GPIO 22
-- Log file: `/spiffs/log.txt` (append mode)
-- Custom partition table (same as `spiffs_test`)
-- Reuses the full LCD driver from `LCD-test` (inlined in the same source file)
-
-**Source:** `Combined_Hardware_Test/main/Combined_Hardware_Test.c`
+**Source:** `phase3_integration/combined_hardware_test/main/main.c`
 
 ---
 
 ## Build & Flash
 
-Each sub-project is an independent ESP-IDF project. To build and flash any of them:
+Each project is an independent ESP-IDF project. To build and flash any of them:
 
 ```bash
 # 1. Set up the ESP-IDF environment (if not already done)
 . $IDF_PATH/export.sh
 
 # 2. Navigate to the desired project
-cd <project_name>
+cd phase3_integration/combined_hardware_test
 
 # 3. Set the target chip (ESP32)
 idf.py set-target esp32
@@ -249,13 +198,13 @@ idf.py -p /dev/ttyUSB0 monitor
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-> **Note:** Projects with a `partitions.csv` file (`spiffs_test`, `Combined_Hardware_Test`) use a custom partition table. The partition table is automatically picked up by ESP-IDF when `sdkconfig` has `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME` set.
+> **Note:** `lcd_test`, `spiffs_test`, and `combined_hardware_test` all reference the shared `components/` folder via `EXTRA_COMPONENT_DIRS` in their `CMakeLists.txt`. If you move a project to a different folder depth, that path must be updated accordingly.
 
 ---
 
 ## Partition Tables
 
-The `spiffs_test` and `Combined_Hardware_Test` projects use a custom partition table (`partitions.csv`):
+`spiffs_test` and `combined_hardware_test` use a custom partition table (`partitions.csv`):
 
 | Name | Type | SubType | Offset | Size | Purpose |
 |---|---|---|---|---|---|
@@ -268,11 +217,9 @@ The `spiffs_test` and `Combined_Hardware_Test` projects use a custom partition t
 
 ## Google Drive Resources
 
-The `Drives` file contains links to Google Drive folders for each internship phase:
-
-- **Environment Setup & Toolchain Configuration:** [Drive Folder](https://drive.google.com/drive/folders/1AljFMJDrY-QZh5AD0zJDmyHB4twc0G_r?usp=drive_link)
+- **Toolchain:** [Drive Folder](https://drive.google.com/drive/folders/1AljFMJDrY-QZh5AD0zJDmyHB4twc0G_r?usp=drive_link)
 - **Hardware Bring-Up:** [Drive Folder](https://drive.google.com/drive/folders/1NcUKMDyomdr0Bg8sfuixllj89ywi88Lt?usp=drive_link)
-- **State Machine Implementation:** [Drive Folder](https://drive.google.com/drive/folders/1ZQKu4DGOcbPCFGfIWDvg8BQQo1RsRbDr?usp=drive_link)
+- **Integration:** [Drive Folder](https://drive.google.com/drive/folders/1ZQKu4DGOcbPCFGfIWDvg8BQQo1RsRbDr?usp=drive_link)
 
 ---
 
