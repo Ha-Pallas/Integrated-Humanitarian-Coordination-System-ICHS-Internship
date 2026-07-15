@@ -7,6 +7,7 @@
 #include "lcd_i2c.h"
 #include "buttons.h"
 #include "spiffs_log.h"
+#include <stdint.h>
 
 /* ---- States, straight from the Task 3A diagram ---- */
 typedef enum {
@@ -30,6 +31,37 @@ typedef enum {
     EVENT_SYNC_ACK,
     EVENT_SYNC_FAIL
 } DeviceEvent;
+
+/* ---- Report category, from the Task 3A diagram (5 categories) ---- */
+typedef enum {
+    CATEGORY_INFRASTRUCTURE,
+    CATEGORY_MEDICAL,
+    CATEGORY_FOOD,
+    CATEGORY_SHELTER,
+    CATEGORY_OTHER
+} ReportCategory;
+
+static const char *category_names[] = {
+    "Infrastructure",
+    "Medical",
+    "Food",
+    "Shelter",
+    "Other"
+};
+
+/* ---- One field report. Field-for-field, this must match Intern 2's
+   database schema — confirm with them before treating this as final. ---- */
+typedef struct {
+    uint32_t report_id;
+    uint32_t timestamp;
+    ReportCategory category;
+    uint8_t severity;          // 1-5 scale
+    uint16_t people_affected;
+    char location[32];
+    char device_id[16];
+} FieldReport;
+
+static FieldReport current_report;
 
 /* Forward declarations — entry actions come in the next step */
 void enter_state(DeviceState state);
