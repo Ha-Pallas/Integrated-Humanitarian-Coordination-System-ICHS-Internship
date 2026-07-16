@@ -345,6 +345,19 @@ void app_main(void)
                 }
                 enter_state(state);
             }
+            else if (state == STATE_DETAIL_ENTRY && event == EVENT_BTN_BACK) {
+                if (s_field_index == 0) {
+                    state = STATE_CATEGORY_SELECTION;
+                } else {
+                    s_field_index--;
+                }
+                enter_state(state);
+            }
+            else if (state == STATE_CONFIRMATION && event == EVENT_BTN_BACK) {
+                s_field_index = NUM_FIELDS - 1;
+                state = STATE_DETAIL_ENTRY;
+                enter_state(state);
+            }
             else {
                 DeviceState next = handle_event(state, event);
                 if (next != state) {
