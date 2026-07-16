@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2c_master.h"
@@ -63,6 +64,10 @@ typedef struct {
 
 static FieldReport current_report;
 
+#define NUM_LOCATIONS 4
+static const char *location_names[] = { "Camp A", "Camp B", "Camp C", "Other" };
+static int s_location_index = 0;
+
 /* Forward declarations — entry actions come in the next step */
 void enter_state(DeviceState state);
 
@@ -77,13 +82,11 @@ DeviceState handle_event(DeviceState current, DeviceEvent event)
         case STATE_CATEGORY_SELECTION:
             if (event == EVENT_BTN_SELECT) return STATE_DETAIL_ENTRY;
             if (event == EVENT_BTN_BACK)   return STATE_IDLE;
-            /* UP / DOWN stay in this state, handled elsewhere (moves highlight) */
             break;
 
         case STATE_DETAIL_ENTRY:
             if (event == EVENT_BTN_SELECT) return STATE_CONFIRMATION;
             if (event == EVENT_BTN_BACK)   return STATE_CATEGORY_SELECTION;
-            /* UP / DOWN stay in this state (adjusts current field's value) */
             break;
 
         case STATE_CONFIRMATION:
@@ -102,18 +105,16 @@ DeviceState handle_event(DeviceState current, DeviceEvent event)
 
         case STATE_SYNC_SUCCESS:
         case STATE_SYNC_FAILED:
-            /* both return to Idle automatically — handled in main loop, not here */
             break;
     }
 
-    return current; // no matching transition, stay put
+    return current;
 }
-/* ---- Minimal navigation state (not part of DeviceState — this is just
-   "which item am I highlighted on", separate from which screen we're on) ---- */
+
 static int s_category_index = 0;
 static int s_field_index = 0;
 
-#define NUM_FIELDS 3 /* severity, people affected, location — matches the doc for now */
+#define NUM_FIELDS 3 /* severity, people affected, location */
 
 void enter_state(DeviceState state)
 {
@@ -123,6 +124,9 @@ void enter_state(DeviceState state)
             printf("[STATE] Entering IDLE\n");
             s_category_index = 0;
             s_field_index = 0;
+            s_location_index = 0;
+            current_report.severity = 1;
+            current_report.people_affected = 0;
             lcd_cmd(0x01);
             vTaskDelay(pdMS_TO_TICKS(5));
             lcd_set_cursor(0, 0);
@@ -140,30 +144,55 @@ void enter_state(DeviceState state)
             lcd_set_cursor(1, 0);
             char buf[32];
             snprintf(buf, sizeof(buf), "> %s", category_names[s_category_index]);
-             lcd_print(buf);
+            lcd_print(buf);
             break;
 
-        case STATE_DETAIL_ENTRY:
+        case STATE_DETAIL_ENTRY: {
             printf("[STATE] Entering DETAIL_ENTRY (field %d)\n", s_field_index);
             lcd_cmd(0x01);
             vTaskDelay(pdMS_TO_TICKS(5));
-            lcd_set_cursor(0, 0);
-            lcd_print("Field:");
-            lcd_set_cursor(1, 0);
             char fbuf[32];
-            snprintf(fbuf, sizeof(fbuf), "#%d of %d", s_field_index + 1, NUM_FIELDS);
-            lcd_print(fbuf);
+            switch (s_field_index) {
+                case 0:
+                    lcd_set_cursor(0, 0);
+                    lcd_print("Severity (1-5):");
+                    lcd_set_cursor(1, 0);
+                    snprintf(fbuf, sizeof(fbuf), "%d", current_report.severity);
+                    lcd_print(fbuf);
+                    break;
+                case 1:
+                    lcd_set_cursor(0, 0);
+                    lcd_print("People affected:");
+                    lcd_set_cursor(1, 0);
+                    snprintf(fbuf, sizeof(fbuf), "%d", current_report.people_affected);
+                    lcd_print(fbuf);
+                    break;
+                case 2:
+                    lcd_set_cursor(0, 0);
+                    lcd_print("Location:");
+                    lcd_set_cursor(1, 0);
+                    lcd_print(location_names[s_location_index]);
+                    break;
+            }
             break;
+        }
 
-        case STATE_CONFIRMATION:
-            printf("[STATE] Entering CONFIRMATION — building summary\n");
+        case STATE_CONFIRMATION: {
+            current_report.location[0] = '\0';
+            strncat(current_report.location, location_names[s_location_index], sizeof(current_report.location) - 1);
+            printf("[STATE] Entering CONFIRMATION — %s, sev=%d, people=%d, loc=%s\n",
+                   category_names[current_report.category], current_report.severity,
+                   current_report.people_affected, current_report.location);
             lcd_cmd(0x01);
             vTaskDelay(pdMS_TO_TICKS(5));
             lcd_set_cursor(0, 0);
-            lcd_print("Confirm report?");
+            char cbuf[32];
+            snprintf(cbuf, sizeof(cbuf), "%s sev%d", category_names[current_report.category], current_report.severity);
+            lcd_print(cbuf);
             lcd_set_cursor(1, 0);
-            lcd_print("SELECT=yes");
+            lcd_print("SELECT=save");
             break;
+        }
 
         case STATE_SAVING:
             printf("[STATE] Entering SAVING — placeholder: report would be written here\n");
@@ -207,16 +236,30 @@ void enter_state(DeviceState state)
 
 static void category_selection_adjust(DeviceEvent event)
 {
-    #define NUM_CATEGORIES 5 /* Infrastructure, Medical, Food, Shelter, Other */
+    #define NUM_CATEGORIES 5
     if (event == EVENT_BTN_UP)   s_category_index = (s_category_index + NUM_CATEGORIES - 1) % NUM_CATEGORIES;
     if (event == EVENT_BTN_DOWN) s_category_index = (s_category_index + 1) % NUM_CATEGORIES;
 }
 
 static void detail_entry_adjust(DeviceEvent event)
 {
-    /* Placeholder: real per-field min/max ranges come once FieldReport exists (Step 5) */
-    if (event == EVENT_BTN_UP)   printf("[DETAIL] field %d value up\n", s_field_index);
-    if (event == EVENT_BTN_DOWN) printf("[DETAIL] field %d value down\n", s_field_index);
+    int delta = (event == EVENT_BTN_UP) ? 1 : (event == EVENT_BTN_DOWN ? -1 : 0);
+    if (delta == 0) return;
+
+    switch (s_field_index) {
+        case 0: /* severity, clamp 1-5 */
+            current_report.severity += delta;
+            if (current_report.severity < 1) current_report.severity = 1;
+            if (current_report.severity > 5) current_report.severity = 5;
+            break;
+        case 1: /* people_affected, clamp at 0 */
+            if (delta < 0 && current_report.people_affected == 0) break;
+            current_report.people_affected += delta;
+            break;
+        case 2: /* location, wraps through preset list */
+            s_location_index = (s_location_index + delta + NUM_LOCATIONS) % NUM_LOCATIONS;
+            break;
+    }
 }
 
 /* Returns true if DetailEntry is finished and should move to Confirmation */
@@ -224,9 +267,9 @@ static bool detail_entry_advance(void)
 {
     s_field_index++;
     if (s_field_index >= NUM_FIELDS) {
-        return true; /* all fields done */
+        return true;
     }
-    return false; /* more fields remain */
+    return false;
 }
 
 void app_main(void)
@@ -252,10 +295,9 @@ void app_main(void)
     DeviceState state = STATE_IDLE;
     enter_state(state);
 
-    bool sync_should_succeed = true; /* placeholder: alternates each attempt */
+    bool sync_should_succeed = true;
 
     while (1) {
-        /* ---- Automatic states: no button needed, act after a short simulated delay ---- */
         if (state == STATE_SAVING) {
             vTaskDelay(pdMS_TO_TICKS(1000));
             state = handle_event(state, EVENT_SAVE_DONE);
@@ -265,7 +307,7 @@ void app_main(void)
         if (state == STATE_SYNC_ATTEMPT) {
             vTaskDelay(pdMS_TO_TICKS(1000));
             DeviceEvent result = sync_should_succeed ? EVENT_SYNC_ACK : EVENT_SYNC_FAIL;
-            sync_should_succeed = !sync_should_succeed; /* flip for next time */
+            sync_should_succeed = !sync_should_succeed;
             state = handle_event(state, result);
             enter_state(state);
             continue;
@@ -277,7 +319,6 @@ void app_main(void)
             continue;
         }
 
-        /* ---- Button-driven states ---- */
         DeviceEvent event;
         bool have_event = true;
 
@@ -292,15 +333,16 @@ void app_main(void)
 
             if (state == STATE_CATEGORY_SELECTION && (event == EVENT_BTN_UP || event == EVENT_BTN_DOWN)) {
                 category_selection_adjust(event);
-                enter_state(state); /* redraw with new highlight */
+                enter_state(state);
             }
             else if (state == STATE_DETAIL_ENTRY && (event == EVENT_BTN_UP || event == EVENT_BTN_DOWN)) {
                 detail_entry_adjust(event);
+                enter_state(state);
             }
             else if (state == STATE_DETAIL_ENTRY && event == EVENT_BTN_SELECT) {
                 if (detail_entry_advance()) {
                     state = STATE_CONFIRMATION;
-                } /* else: stay in DetailEntry, just show the next field */
+                }
                 enter_state(state);
             }
             else {
