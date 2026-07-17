@@ -14,6 +14,7 @@
 - [Phase 1 — Toolchain](#phase-1--toolchain)
 - [Phase 2 — Hardware Bring-Up](#phase-2--hardware-bring-up)
 - [Phase 3 — Integration](#phase-3--integration)
+- [Phase 4 — Application Logic](#phase-4--application-logic)
 - [Build & Flash](#build--flash)
 - [Partition Tables](#partition-tables)
 - [Google Drive Resources](#google-drive-resources)
@@ -23,13 +24,14 @@
 
 ## Overview
 
-This repository contains a series of incremental ESP32 firmware projects built with the **ESP-IDF** (Espressif IoT Development Framework), organized by internship phase. Common hardware drivers (LCD, buttons, SPIFFS logging) live in shared, reusable ESP-IDF components under `components/`, rather than being duplicated across projects. The final project, `combined_hardware_test`, pulls all three shared components together into a single application that drives an I2C LCD, reads two push-buttons, and logs events to the SPIFFS flash file system.
+This repository contains a series of incremental ESP32 firmware projects built with the **ESP-IDF** (Espressif IoT Development Framework), organized by internship phase. Common hardware drivers (LCD, buttons, SPIFFS logging) live in shared, reusable ESP-IDF components under `components/`, rather than being duplicated across projects.
 
-The work was carried out across three internship phases:
+The work was carried out across four internship phases:
 
 1. **Toolchain** — Getting the ESP-IDF toolchain working and flashing the first "hello world" LED blink.
 2. **Hardware Bring-Up** — Individually testing UART serial output, GPIO button input, I2C LCD display, and SPIFFS persistent storage.
 3. **Integration** — Combining all peripherals into a single interactive firmware built on shared components.
+4. **Application Logic** — Building the actual state machine firmware for the field report terminal, on top of the shared components.
 
 ---
 
@@ -40,33 +42,38 @@ The work was carried out across three internship phases:
 | **MCU** | ESP32-D0WD (dual-core Xtensa LX6) |
 | **Framework** | ESP-IDF v6.0.1 (CMake-based build) |
 | **LCD** | 16×2 character LCD via I2C (PCF8574 backpack, address `0x27`) |
-| **Buttons** | 2× push-buttons, active-low with internal pull-up |
+| **Buttons** | 4× push-buttons, active-low with internal pull-up |
 | **I2C Pins** | SDA = GPIO 21, SCL = GPIO 22 |
-| **Button Pins** | GPIO 32 (Button 1), GPIO 33 (Button 2) |
+| **Button Pins** | SELECT = GPIO 32, UP = GPIO 33, DOWN = GPIO 25, BACK = GPIO 26 |
 
 All shared pin definitions live in `components/include/board.h`.
 
 ---
 
 ## Project Structure
+
+```
 Integrated-Humanitarian-Coordination-System-ICHS-Internship/
 ├── README.md
-├── components/                          # Shared ESP-IDF components
-│   ├── include/                         # board.h — shared pin definitions
-│   ├── lcd_i2c/                         # I2C 16x2 LCD driver
-│   ├── buttons/                         # Debounced GPIO button handling
-│   └── spiffs_log/                      # SPIFFS-backed logging
+├── components/                              # Shared ESP-IDF components
+│   ├── include/                             # board.h — shared pin definitions
+│   ├── lcd_i2c/                             # I2C 16x2 LCD driver
+│   ├── buttons/                             # Debounced GPIO button handling
+│   └── spiffs_log/                          # SPIFFS-backed logging
 ├── phase1_toolchain/
-│   └── led_blink/                       # GPIO LED blink ("hello world")
+│   └── led_blink/                           # GPIO LED blink ("hello world")
 ├── phase2_bringup/
-│   ├── uart_output/                     # UART serial heartbeat
-│   ├── buttons_test/                    # Standalone button GPIO test
-│   ├── lcd_test/                        # Standalone LCD driver test
-│   └── spiffs_test/                     # Standalone SPIFFS test
-└── phase3_integration/
-└── combined_hardware_test/          # Integrated firmware (uses all 3 components)
+│   ├── uart_output/                         # UART serial heartbeat
+│   ├── buttons_test/                        # Standalone button GPIO test
+│   ├── lcd_test/                            # Standalone LCD driver test
+│   └── spiffs_test/                         # Standalone SPIFFS test
+├── phase3_integration/
+│   └── combined_hardware_test/              # Integrated hardware test (all 3 components)
+└── phase4_state_machine/
+    └── report_terminal/                     # Field report terminal state machine firmware
+```
 
-Each project folder (`led_blink`, `uart_output`, etc.) is an independent ESP-IDF project with its own `CMakeLists.txt`, `main/`, and `sdkconfig.defaults`.
+Each project folder is an independent ESP-IDF project with its own `CMakeLists.txt`, `main/`, and `sdkconfig.defaults`.
 
 ---
 
@@ -77,10 +84,12 @@ Each project folder (`led_blink`, `uart_output`, etc.) is an independent ESP-IDF
 Central pin definitions, shared by any component or project that needs them:
 
 ```c
-#define LCD_SDA_PIN   GPIO_NUM_21
-#define LCD_SCL_PIN   GPIO_NUM_22
-#define BUTTON_1_PIN  GPIO_NUM_32
-#define BUTTON_2_PIN  GPIO_NUM_33
+#define LCD_SDA_PIN       GPIO_NUM_21
+#define LCD_SCL_PIN       GPIO_NUM_22
+#define BUTTON_SELECT_PIN GPIO_NUM_32
+#define BUTTON_UP_PIN     GPIO_NUM_33
+#define BUTTON_DOWN_PIN   GPIO_NUM_25
+#define BUTTON_BACK_PIN   GPIO_NUM_26
 ```
 
 ### `components/lcd_i2c` — I2C LCD driver
@@ -98,7 +107,7 @@ void lcd_print(const char *str);
 
 ### `components/buttons` — Debounced GPIO buttons
 
-Active-low, internal pull-up, 200 ms software debounce.
+Active-low, internal pull-up, 200 ms software debounce. Supports 4 buttons (SELECT, UP, DOWN, BACK).
 
 ```c
 void buttons_init(void);
@@ -158,7 +167,7 @@ Standalone test of SPIFFS mounting, writing, reading, and appending — the basi
 
 ### `combined_hardware_test`
 
-The culmination of the internship work. Built on top of the three shared components (`lcd_i2c`, `buttons`, `spiffs_log`) rather than duplicating driver code.
+Built on top of the three shared components (`lcd_i2c`, `buttons`, `spiffs_log`) rather than duplicating driver code.
 
 **Behaviour:**
 
@@ -171,6 +180,21 @@ The culmination of the internship work. Built on top of the three shared compone
 
 ---
 
+## Phase 4 — Application Logic
+
+### `report_terminal`
+
+The state machine firmware for the actual field report terminal — the menu system a field worker interacts with. Built on the same shared components, with 2 extra buttons added (4 total: SELECT, UP, DOWN, BACK) to support real menu navigation.
+
+Saving and syncing are placeholders at this stage — the focus was getting the full menu flow correct first.
+
+For the full breakdown (screen-by-screen table, bugs found, UART trace, what's real vs placeholder), see the dedicated README:
+📄 `phase4_state_machine/report_terminal/README.md`
+
+**Source:** `phase4_state_machine/report_terminal/main/main.c`
+
+---
+
 ## Build & Flash
 
 Each project is an independent ESP-IDF project. To build and flash any of them:
@@ -180,7 +204,7 @@ Each project is an independent ESP-IDF project. To build and flash any of them:
 . $IDF_PATH/export.sh
 
 # 2. Navigate to the desired project
-cd phase3_integration/combined_hardware_test
+cd phase4_state_machine/report_terminal
 
 # 3. Set the target chip (ESP32)
 idf.py set-target esp32
@@ -198,13 +222,13 @@ idf.py -p /dev/ttyUSB0 monitor
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-> **Note:** `lcd_test`, `spiffs_test`, and `combined_hardware_test` all reference the shared `components/` folder via `EXTRA_COMPONENT_DIRS` in their `CMakeLists.txt`. If you move a project to a different folder depth, that path must be updated accordingly.
+> **Note:** `lcd_test`, `spiffs_test`, `combined_hardware_test`, and `report_terminal` all reference the shared `components/` folder via `EXTRA_COMPONENT_DIRS` in their `CMakeLists.txt`. If you move a project to a different folder depth, that path must be updated accordingly.
 
 ---
 
 ## Partition Tables
 
-`spiffs_test` and `combined_hardware_test` use a custom partition table (`partitions.csv`):
+`spiffs_test`, `combined_hardware_test`, and `report_terminal` use a custom partition table (`partitions.csv`):
 
 | Name | Type | SubType | Offset | Size | Purpose |
 |---|---|---|---|---|---|
