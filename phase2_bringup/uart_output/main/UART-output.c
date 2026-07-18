@@ -7,7 +7,7 @@ void app_main(void)
     int counter = 0;
 
     // Runs once at boot
-    printf("ICHS Field Terminal — Boot OK\n");
+    printf("IHCS Field Terminal — Boot OK\n");
 
     while (1)
     {
