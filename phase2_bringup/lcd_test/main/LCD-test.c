@@ -55,7 +55,7 @@ void app_main(void)
 
 
         lcd_set_cursor(0, 0);
-        lcd_print("ICHS OK");
+        lcd_print("IHCS OK");
 
 
         lcd_set_cursor(1, 0);
